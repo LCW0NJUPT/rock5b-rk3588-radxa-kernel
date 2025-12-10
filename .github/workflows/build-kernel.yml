@@ -83,3 +83,78 @@ jobs:
           name: build-logs
           path: armbian-build/output/logs/
           retention-days: 7
+
+      - name: Generate build timestamp
+        id: timestamp
+        run: echo "TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: kernel-${{ steps.timestamp.outputs.TIMESTAMP }}
+          name: Rock5B Kernel ${{ steps.timestamp.outputs.TIMESTAMP }}
+          body: |
+            ## Rock5B Radxa Kernel Build
+            
+            **编译信息**
+            - Git SHA: `${{ github.sha }}`
+            - 编译时间: `${{ steps.timestamp.outputs.TIMESTAMP }}` (UTC)
+            - 触发方式: `${{ github.event_name }}`
+            - Runner: `${{ runner.os }}`
+
+            **功能特性**
+            - ✅ Rockchip ISP 摄像头支持
+            - ✅ Mali Valhall GPU 驱动 (G610 etc)
+            - ✅ Rockchip NPU 加速
+            - ✅ IMX219 摄像头传感器
+
+            **安装指南**
+            
+            ### 1. 下载并安装内核
+            ```bash
+            # 下载所有 .deb 文件
+            wget https://github.com/${{ github.repository }}/releases/download/kernel-${{ steps.timestamp.outputs.TIMESTAMP }}/*.deb
+            
+            # 安装内核
+            sudo dpkg -i linux-image-*.deb linux-headers-*.deb linux-dtb-*.deb
+            ```
+            
+            ### 2. 更新引导
+            ```bash
+            sudo update-initramfs -c -k $(uname -r)
+            sudo armbian-install  # 更新bootloader，一定要这么做，先别重启！！
+            ```
+            
+            ### 3. 重启验证
+            ```bash
+            sudo reboot
+            uname -a  # 检查内核版本
+            dmesg | grep -E "isp|mali|npu|imx219"  # 验证驱动加载
+            # armbian-config里面开启imx219或者对应的树莓派摄像头V2
+            # 安装camera-engine-rkaiq_xxx.deb并启动
+            # systemctl start rkaiq_3A.service
+            # systemctl status rkaiq_3A.service
+
+            ```
+            
+            **包含的文件**
+            - `linux-image-*.deb` - 内核镜像
+            - `linux-headers-*.deb` - 内核头文件（编译模块用）
+            - `linux-dtb-*.deb` - 设备树文件
+            
+            **⚠️重要提示**
+            - 安装前建议备份重要数据
+            - 安装后务必执行 `sudo armbian-install` 更新bootloader
+            - 如遇启动问题，可在U-Boot倒计时按空格键选择旧内核
+            
+            **构建日志**
+            - 详细日志请查看 Actions 运行记录
+            - Artifact: `rock5b-kernel-debs-${{ steps.timestamp.outputs.TIMESTAMP }}`
+            
+
+          files: armbian-build/output/debs/*.deb
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
