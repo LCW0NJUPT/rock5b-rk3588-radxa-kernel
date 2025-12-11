@@ -152,7 +152,7 @@ jobs:
             - Artifact: `rock5b-kernel-debs-${{ steps.timestamp.outputs.TIMESTAMP }}`
             
 
-          files: /armbian/output/packages-hashed/global/*.deb
+          files: armbian/output/packages-hashed/*.tar
           draft: false
           prerelease: false
         env:
