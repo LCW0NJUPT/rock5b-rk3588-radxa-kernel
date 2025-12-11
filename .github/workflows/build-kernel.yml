@@ -27,6 +27,7 @@ jobs:
 
       # =================================================================================
       # [新增步骤] 动态同步 Radxa 官方内核信息与补丁
+      # 自动反推 Hash 对应的分支名，以解决 Armbian 不识别 Hash 的问题
       # 这将修改本地的 userpatches/lib.config 并注入 Patch，随后会被复制到构建目录
       # =================================================================================
       - name: Sync Configuration with Radxa Official
@@ -35,43 +36,72 @@ jobs:
           # 临时克隆官方打包仓库
           git clone --recursive https://github.com/radxa-pkg/linux-rk2410 radxa_pkg_temp
           
-          # 1. 提取动态信息
-          # 获取 src submodule 的 URL (通常是 https://github.com/radxa/kernel)
+          # 1. 提取 Git URL
           RADXA_GIT_URL=$(git -C radxa_pkg_temp config --file .gitmodules --get submodule.src.url)
-          # 获取 src 目录当前锁定的具体 Commit SHA (确保与官方固件完全一致)
-          RADXA_COMMIT_SHA=$(git -C radxa_pkg_temp/src rev-parse HEAD)
           
-          echo "Target Git URL: $RADXA_GIT_URL"
-          echo "Target Commit:  $RADXA_COMMIT_SHA"
+          # 2. 进入 src 目录自动反推分支名
+          cd radxa_pkg_temp/src
+          
+          # [关键] 必须 fetch 才能获知远程分支信息，否则 submodule 处于 detached 状态不知所属分支
+          echo ">>> 正在获取远程分支信息..."
+          git fetch origin --tags
+          
+          # 获取当前锁定的 Commit SHA (用于日志记录)
+          CURRENT_SHA=$(git rev-parse HEAD)
+          
+          # [核心逻辑] 查找包含当前 Commit 的远程分支
+          # -r: 远程分支
+          # --contains: 包含当前 HEAD 的分支
+          # grep: 优先匹配 linux-6.1-stan 这种标准命名的分支
+          # head -n 1: 如果有多个，取第一个
+          # sed: 去掉 origin/ 前缀和空格
+          DETECTED_BRANCH=$(git branch -r --contains HEAD | grep "linux-" | head -n 1 | sed 's/.*origin\///' | xargs)
+          
+          # 如果没找到（比如是 tag），尝试查找 tag
+          if [ -z "$DETECTED_BRANCH" ]; then
+             DETECTED_BRANCH=$(git describe --tags --exact-match 2>/dev/null || echo "")
+          fi
+          
+          # 如果还是空的，为了防止报错，强制使用一个默认值（虽然大概率不会发生）
+          if [ -z "$DETECTED_BRANCH" ]; then
+             echo "⚠️ 警告: 无法自动检测分支，回退到默认值 linux-6.1-stan-rkr4.1"
+             DETECTED_BRANCH="linux-6.1-stan-rkr4.1"
+          fi
+          
+          cd ../..
+          
+          echo "----------------------------------------"
+          echo "Kernel URL:     $RADXA_GIT_URL"
+          echo "Locked SHA:     $CURRENT_SHA"
+          echo "Detected Branch: $DETECTED_BRANCH"
+          echo "----------------------------------------"
 
-          # 2. 动态修改 userpatches/lib.config
+          # 3. 动态修改 userpatches/lib.config
           echo ">>> 更新 userpatches/lib.config..."
           
-          # 替换 KERNELSOURCE 为官方 URL
+          # 替换 KERNELSOURCE
           sed -i "s|declare -g KERNELSOURCE=.*|declare -g KERNELSOURCE=\"$RADXA_GIT_URL\"|g" userpatches/lib.config
           
-          # 替换 KERNELBRANCH 为具体的 Commit SHA (去掉 branch: 前缀，直接锁定 Hash)
-          sed -i "s|declare -g KERNELBRANCH=.*|declare -g KERNELBRANCH=\"$RADXA_COMMIT_SHA\"|g" userpatches/lib.config
+          # 替换 KERNELBRANCH 为自动检测到的分支名
+          sed -i "s|declare -g KERNELBRANCH=.*|declare -g KERNELBRANCH=\"$DETECTED_BRANCH\"|g" userpatches/lib.config
           
-          # [关键] 注释掉浅克隆设置。因为特定 Commit 可能在历史记录深处，shallow clone 会导致 checkout 失败
+          # [重要] 恢复 shallow 设置？
+          # 由于我们现在提供的是分支名，Armbian 可以正常 fetch，可以尝试开启 shallow 加速
+          # 但为了稳妥（防止分支有变动导致 SHA 对应不上），建议依然保持注释掉 shallow，或者仅在分支极新时开启。
+          # 这里为了安全起见，我们依然注释掉它，保证完整克隆。
           sed -i "s|declare -g KERNEL_GIT=\"shallow\"|# declare -g KERNEL_GIT=\"shallow\"|g" userpatches/lib.config
 
-          # 3. 注入官方补丁
-          # 根据 lib.config，目标目录是 rockchip-rk3588-radxa
+          # 4. 注入官方补丁
           TARGET_PATCH_DIR="userpatches/kernel/rockchip-rk3588-radxa"
-          
           echo ">>> 同步补丁至: $TARGET_PATCH_DIR"
-          # 确保目录存在并清理旧文件
           rm -rf $TARGET_PATCH_DIR
           mkdir -p $TARGET_PATCH_DIR
+          cp radxa_pkg_temp/debian/patches/*.patch $TARGET_PATCH_DIR/
           
-          # 复制官方 debian/patches 下的所有补丁
-          cp radxa_pkg_temp/debian/patches/linux/*.patch $TARGET_PATCH_DIR/
-          
-          # 清理临时文件
+          # 清理
           rm -rf radxa_pkg_temp
           
-          echo ">>> 配置同步完成，lib.config 预览："
+          echo ">>> lib.config 修改完成，内容预览："
           cat userpatches/lib.config
 
       - name: Install dependencies
