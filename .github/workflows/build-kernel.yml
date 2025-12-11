@@ -96,7 +96,7 @@ jobs:
           echo ">>> 同步补丁至: $TARGET_PATCH_DIR"
           rm -rf $TARGET_PATCH_DIR
           mkdir -p $TARGET_PATCH_DIR
-          cp radxa_pkg_temp/debian/patches/*.patch $TARGET_PATCH_DIR/
+          cp radxa_pkg_temp/debian/patches/linux/*.patch $TARGET_PATCH_DIR/
           
           # 清理
           rm -rf radxa_pkg_temp
