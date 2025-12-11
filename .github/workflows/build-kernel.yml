@@ -83,7 +83,7 @@ jobs:
           sed -i "s|declare -g KERNELSOURCE=.*|declare -g KERNELSOURCE=\"$RADXA_GIT_URL\"|g" userpatches/lib.config
           
           # 替换 KERNELBRANCH 为自动检测到的分支名
-          sed -i "s|declare -g KERNELBRANCH=.*|declare -g KERNELBRANCH=\"$DETECTED_BRANCH\"|g" userpatches/lib.config
+          sed -i "s|declare -g KERNELBRANCH=.*|declare -g KERNELBRANCH=\"branch:$DETECTED_BRANCH\"|g" userpatches/lib.config
           
           # [重要] 恢复 shallow 设置？
           # 由于我们现在提供的是分支名，Armbian 可以正常 fetch，可以尝试开启 shallow 加速
@@ -91,12 +91,17 @@ jobs:
           # 这里为了安全起见，我们依然注释掉它，保证完整克隆。
           sed -i "s|declare -g KERNEL_GIT=\"shallow\"|# declare -g KERNEL_GIT=\"shallow\"|g" userpatches/lib.config
 
-          # 4. 注入官方补丁
+          # 4. [关键修复] 注入官方补丁 - 使用 find 更加健壮
           TARGET_PATCH_DIR="userpatches/kernel/rockchip-rk3588-radxa"
           echo ">>> 同步补丁至: $TARGET_PATCH_DIR"
           rm -rf $TARGET_PATCH_DIR
           mkdir -p $TARGET_PATCH_DIR
-          cp radxa_pkg_temp/debian/patches/linux/*.patch $TARGET_PATCH_DIR/
+          # 使用 find 递归查找所有 .patch 文件并复制，不用担心文件在不在子目录里
+          # 排除 git 目录
+          find radxa_pkg_temp/debian/patches -type f -name "*.patch" -exec cp {} $TARGET_PATCH_DIR/ \;
+          # 检查复制结果
+          PATCH_COUNT=$(ls $TARGET_PATCH_DIR/*.patch | wc -l)
+          echo ">>> 已复制 $PATCH_COUNT 个补丁文件"
           
           # 清理
           rm -rf radxa_pkg_temp
