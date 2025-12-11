@@ -66,7 +66,7 @@ jobs:
           mkdir -p $TARGET_PATCH_DIR
           
           # 复制官方 debian/patches 下的所有补丁
-          cp radxa_pkg_temp/debian/patches/*.patch $TARGET_PATCH_DIR/
+          cp radxa_pkg_temp/debian/patches/linux/*.patch $TARGET_PATCH_DIR/
           
           # 清理临时文件
           rm -rf radxa_pkg_temp
@@ -74,7 +74,7 @@ jobs:
           echo ">>> 配置同步完成，lib.config 预览："
           cat userpatches/lib.config
           echo ">>> 有哪些patch："
-          ls -l userpatches/
+          ls -l userpatches/*.patch
 
       - name: Install dependencies
         run: |
