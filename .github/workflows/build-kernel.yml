@@ -73,8 +73,6 @@ jobs:
           
           echo ">>> 配置同步完成，lib.config 预览："
           cat userpatches/lib.config
-          echo ">>> 有哪些patch："
-          ls -l userpatches/*.patch
 
       - name: Install dependencies
         run: |
