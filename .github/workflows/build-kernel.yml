@@ -25,6 +25,57 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc "/usr/local/share/boost" "$AGENT_TOOLSDIRECTORY"
           df -h
 
+      # =================================================================================
+      # [新增步骤] 动态同步 Radxa 官方内核信息与补丁
+      # 这将修改本地的 userpatches/lib.config 并注入 Patch，随后会被复制到构建目录
+      # =================================================================================
+      - name: Sync Configuration with Radxa Official
+        run: |
+          echo ">>> 正在拉取 Radxa 官方打包项目信息..."
+          # 临时克隆官方打包仓库
+          git clone --recursive https://github.com/radxa-pkg/linux-rk2410 radxa_pkg_temp
+          
+          # 1. 提取动态信息
+          # 获取 src submodule 的 URL (通常是 https://github.com/radxa/kernel)
+          RADXA_GIT_URL=$(git -C radxa_pkg_temp config --file .gitmodules --get submodule.src.url)
+          # 获取 src 目录当前锁定的具体 Commit SHA (确保与官方固件完全一致)
+          RADXA_COMMIT_SHA=$(git -C radxa_pkg_temp/src rev-parse HEAD)
+          
+          echo "Target Git URL: $RADXA_GIT_URL"
+          echo "Target Commit:  $RADXA_COMMIT_SHA"
+
+          # 2. 动态修改 userpatches/lib.config
+          echo ">>> 更新 userpatches/lib.config..."
+          
+          # 替换 KERNELSOURCE 为官方 URL
+          sed -i "s|declare -g KERNELSOURCE=.*|declare -g KERNELSOURCE=\"$RADXA_GIT_URL\"|g" userpatches/lib.config
+          
+          # 替换 KERNELBRANCH 为具体的 Commit SHA (去掉 branch: 前缀，直接锁定 Hash)
+          sed -i "s|declare -g KERNELBRANCH=.*|declare -g KERNELBRANCH=\"$RADXA_COMMIT_SHA\"|g" userpatches/lib.config
+          
+          # [关键] 注释掉浅克隆设置。因为特定 Commit 可能在历史记录深处，shallow clone 会导致 checkout 失败
+          sed -i "s|declare -g KERNEL_GIT=\"shallow\"|# declare -g KERNEL_GIT=\"shallow\"|g" userpatches/lib.config
+
+          # 3. 注入官方补丁
+          # 根据 lib.config，目标目录是 rockchip-rk3588-radxa
+          TARGET_PATCH_DIR="userpatches/kernel/rockchip-rk3588-radxa"
+          
+          echo ">>> 同步补丁至: $TARGET_PATCH_DIR"
+          # 确保目录存在并清理旧文件
+          rm -rf $TARGET_PATCH_DIR
+          mkdir -p $TARGET_PATCH_DIR
+          
+          # 复制官方 debian/patches 下的所有补丁
+          cp radxa_pkg_temp/debian/patches/*.patch $TARGET_PATCH_DIR/
+          
+          # 清理临时文件
+          rm -rf radxa_pkg_temp
+          
+          echo ">>> 配置同步完成，lib.config 预览："
+          cat userpatches/lib.config
+          echo ">>> 有哪些patch："
+          ls -l userpatches/
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -43,6 +94,7 @@ jobs:
         run: |
           git clone https://github.com/armbian/build.git armbian-build
 
+      # 此时 userpatches 已经被上面的步骤修改过了，包含了最新的 SHA 和 Patches
       - name: Copy userpatches
         run: |
           cp -r userpatches armbian-build/
@@ -55,7 +107,7 @@ jobs:
       - name: Configure board
         run: |
           cd armbian-build
-          # 确保vendor-radxa分支存在
+          # 确保 vendor-radxa 分支在 conf 中被允许
           sed -i 's/KERNEL_TARGET="vendor,edge"/KERNEL_TARGET="vendor,edge,vendor-radxa"/' config/boards/rock-5b.conf || true
           # 如果配置文件不存在则复制
           #if [ ! -f "config/kernel/linux-rockchip-rk3588-vendor-radxa.config" ]; then
@@ -68,7 +120,7 @@ jobs:
           cd armbian-build
           export CCACHE_DIR=$HOME/.ccache
           export PATH="/usr/lib/ccache:$PATH"
-          ./compile.sh kernel BOARD=rock-5b BRANCH=vendor-radxa USE_CCACHE=yes KERNEL_GIT=shallow
+          ./compile.sh kernel BOARD=rock-5b BRANCH=vendor-radxa USE_CCACHE=yes 
 
       - name: Upload kernel packages
         uses: actions/upload-artifact@v4
@@ -95,18 +147,24 @@ jobs:
           tag_name: kernel-${{ steps.timestamp.outputs.TIMESTAMP }}
           name: Rock5B Kernel ${{ steps.timestamp.outputs.TIMESTAMP }}
           body: |
-            ## Rock5B Radxa Kernel Build
+            ## Rock5B Radxa Kernel Build (Auto Sync)
+            
+            **构建来源**
+            - 基准项目: `radxa-pkg/linux-rk2410`
+            - Kernel Git: 动态获取 (见构建日志)
+            - Kernel Commit: 动态获取 (与官方固件一致)
+            - Patch set: 自动同步官方 patches
             
             **编译信息**
-            - Git SHA: `${{ github.sha }}`
+
             - 编译时间: `${{ steps.timestamp.outputs.TIMESTAMP }}` (UTC)
             - 触发方式: `${{ github.event_name }}`
-            - Runner: `${{ runner.os }}`
+
 
             **功能特性**
             - ✅ Rockchip ISP 摄像头支持
-            - ✅ Mali Valhall GPU 驱动 (G610 etc)
-            - ✅ Rockchip NPU 加速
+            - ✅ Mali Valhall GPU 驱动 (G610)
+            - ✅ Rockchip NPU 加速 (rknpu2)
             - ✅ IMX219 摄像头传感器
 
             **安装指南**
