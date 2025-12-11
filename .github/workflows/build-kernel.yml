@@ -14,7 +14,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    
+    permissions:  # 添加权限配置
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -152,7 +153,7 @@ jobs:
             - Artifact: `rock5b-kernel-debs-${{ steps.timestamp.outputs.TIMESTAMP }}`
             
 
-          files: armbian/output/packages-hashed/*.tar
+          files: armbian-build/output/debs/*.deb
           draft: false
           prerelease: false
         env:
