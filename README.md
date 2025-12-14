@@ -40,3 +40,8 @@ dmesg | grep -i imx219
 dmesg | grep -i "mali\|npu\|isp"
 # 应该显示GPU/NPU/ISP驱动加载成功
 ```
+## 如果想要切换回原来的环境    
+先armbian-config改回来  
+再sudo apt remove linux-image-现在的内核版本    
+
+
